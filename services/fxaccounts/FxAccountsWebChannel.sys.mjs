@@ -37,6 +37,7 @@ import {
   ON_SERVICE_ENABLED_NOTIFICATION,
   PREF_LAST_FXA_USER_UID,
   PREF_LAST_FXA_USER_EMAIL,
+  SCOPE_APP_SYNC,
   SCOPE_OLD_SYNC,
   SCOPE_PROFILE,
   WEBCHANNEL_ID,
@@ -980,6 +981,9 @@ FxAccountsWebChannelHelpers.prototype = {
           sessionToken: userData.sessionToken,
           uid: userData.uid,
           verified: userData.verified,
+          // False when a locked Primary Password stops us reading the keys.
+          hasSyncKeys:
+            await this._fxAccounts.keys.hasKeysForScope(SCOPE_APP_SYNC),
         };
       }
     }

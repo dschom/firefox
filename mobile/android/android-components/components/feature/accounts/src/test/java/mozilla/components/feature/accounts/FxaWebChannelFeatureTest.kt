@@ -24,6 +24,7 @@ import mozilla.components.concept.sync.SyncEngine
 import mozilla.components.service.fxa.FxaAuthData
 import mozilla.components.service.fxa.ServerConfig
 import mozilla.components.service.fxa.manager.FxaAccountManager
+import mozilla.components.service.fxa.manager.SCOPE_SYNC
 import mozilla.components.support.test.any
 import mozilla.components.support.test.argumentCaptor
 import mozilla.components.support.test.eq
@@ -631,6 +632,79 @@ class FxaWebChannelFeatureTest {
     }
 
     @Test
+    fun `COMMAND_STATUS must report the sync keys of the signed-in account to the web-channel`() {
+        val port: Port = mock()
+        val account: OAuthAccount = mock()
+        val accountManager: FxaAccountManager = mock()
+        val responseToTheWebChannel = argumentCaptor<JSONObject>()
+
+        whenever(accountManager.authenticatedAccount()).thenReturn(account)
+        whenever(account.getSignedInUserForWebChannel()).thenReturn(
+            """{"sessionToken":"testToken","email":"test@example.com","uid":"testUID","verified":true}""",
+        )
+        whenever(account.hasScope(SCOPE_SYNC)).thenReturn(true)
+
+        val messageHandler = startedMessageHandler(
+            ext = mock(),
+            port = port,
+            engineSession = mock(),
+            fxaCapabilities = emptySet(),
+            accountManager = accountManager,
+        )
+
+        messageHandler.onPortMessage(jsonFxaStatus(), port)
+        verify(port).postMessage(responseToTheWebChannel.capture())
+
+        assertEquals(true, responseToTheWebChannel.value.getHasSyncKeys())
+    }
+
+    @Test
+    fun `COMMAND_STATUS must report missing sync keys to the web-channel`() {
+        val port: Port = mock()
+        val account: OAuthAccount = mock()
+        val accountManager: FxaAccountManager = mock()
+        val responseToTheWebChannel = argumentCaptor<JSONObject>()
+
+        whenever(accountManager.authenticatedAccount()).thenReturn(account)
+        whenever(account.getSignedInUserForWebChannel()).thenReturn(
+            """{"sessionToken":"testToken","email":"test@example.com","uid":"testUID","verified":true}""",
+        )
+        whenever(account.hasScope(SCOPE_SYNC)).thenReturn(false)
+
+        val messageHandler = startedMessageHandler(
+            ext = mock(),
+            port = port,
+            engineSession = mock(),
+            fxaCapabilities = emptySet(),
+            accountManager = accountManager,
+        )
+
+        messageHandler.onPortMessage(jsonFxaStatus(), port)
+        verify(port).postMessage(responseToTheWebChannel.capture())
+
+        assertEquals(false, responseToTheWebChannel.value.getHasSyncKeys())
+    }
+
+    @Test
+    fun `COMMAND_STATUS must not report sync keys without an account`() {
+        val port: Port = mock()
+        val responseToTheWebChannel = argumentCaptor<JSONObject>()
+
+        val messageHandler = startedMessageHandler(
+            ext = mock(),
+            port = port,
+            engineSession = mock(),
+            fxaCapabilities = emptySet(),
+            accountManager = mock(),
+        )
+
+        messageHandler.onPortMessage(jsonFxaStatus(), port)
+        verify(port).postMessage(responseToTheWebChannel.capture())
+
+        assertNull(responseToTheWebChannel.value.getHasSyncKeys())
+    }
+
+    @Test
     fun `COMMAND_PAIR_OAUTH_START must respond with the oauth parameters from the auth url`() = runTest {
         val port: Port = mock()
         val accountManager: FxaAccountManager = mock()
@@ -659,9 +733,10 @@ class FxaWebChannelFeatureTest {
         assertEquals("st8", data.getString("state"))
         assertEquals("profile https://identity.mozilla.com/apps/oldsync", data.getString("scope"))
         assertEquals("chal8", data.getString("code_challenge"))
+        assertEquals("S256", data.getString("code_challenge_method"))
         assertEquals("jwk8", data.getString("keys_jwk"))
         // Only the parameters FxA needs are exposed.
-        assertEquals(4, data.length())
+        assertEquals(5, data.length())
     }
 
     @Test
@@ -1220,6 +1295,17 @@ class FxaWebChannelFeatureTest {
                 .getJSONObject("data")
                 .getJSONObject("capabilities")
                 .getBoolean("pairing")
+        } catch (e: JSONException) {
+            null
+        }
+    }
+
+    private fun JSONObject.getHasSyncKeys(): Boolean? {
+        return try {
+            this.getJSONObject("message")
+                .getJSONObject("data")
+                .getJSONObject("signedInUser")
+                .getBoolean("hasSyncKeys")
         } catch (e: JSONException) {
             null
         }

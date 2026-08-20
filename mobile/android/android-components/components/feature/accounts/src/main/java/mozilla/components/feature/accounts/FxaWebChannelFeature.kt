@@ -265,7 +265,8 @@ class FxaWebChannelFeature(
         private val PAIRING_OAUTH_SCOPES = setOf(SCOPE_PROFILE, SCOPE_SYNC, SCOPE_SESSION)
 
         // The OAuth parameters FxA needs from us to talk to the pairing authority on our behalf.
-        private val PAIRING_OAUTH_PARAMS = listOf("state", "scope", "code_challenge", "keys_jwk")
+        private val PAIRING_OAUTH_PARAMS =
+            listOf("state", "scope", "code_challenge", "code_challenge_method", "keys_jwk")
 
         // For all possible messages and their meaning/payloads, see:
         // https://github.com/mozilla/fxa/blob/master/packages/fxa-content-server/docs/relier-communication-protocols/fx-webchannel.md
@@ -381,6 +382,7 @@ class FxaWebChannelFeature(
             messageId: String,
             fxaCapabilities: Set<FxaCapability>,
         ): JSONObject {
+            val account = accountManager.authenticatedAccount()
             val status = JSONObject()
             status.put("id", CHANNEL_ID)
             status.put(
@@ -415,12 +417,21 @@ class FxaWebChannelFeature(
                                     capabilities.put("can_link_account_uid", true)
                                 },
                             )
-                            val account = accountManager.authenticatedAccount()
                             val signedInUserJson = account?.getSignedInUserForWebChannel()
                             if (signedInUserJson == null) {
                                 data.put("signedInUser", JSONObject.NULL)
                             } else {
-                                data.put("signedInUser", JSONObject(signedInUserJson))
+                                data.put(
+                                    "signedInUser",
+                                    JSONObject(signedInUserJson).also { signedInUser ->
+                                        // Sync keys are delivered along with the oldsync scope, so
+                                        // a granted scope means we hold the key.
+                                        signedInUser.put(
+                                            "hasSyncKeys",
+                                            account.hasScope(SCOPE_SYNC),
+                                        )
+                                    },
+                                )
                             }
                         },
                     )
